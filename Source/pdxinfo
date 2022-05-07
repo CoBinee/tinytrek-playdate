@@ -1,0 +1,7 @@
+name=TINY TREK
+author=CoBinee
+description=A text-based strategy video game.
+bundleID=no2.cobin.tinytrek
+buildNumber=1
+version=0.0.1
+imagePath=launcher

@@ -1,0 +1,8 @@
+.DS_Store
+.vscode/
+*.pdx/
+build/
+Source/pdex.bin
+Source/pdex.dylib
+Source/pdex.so
+Source/pdex.elf
