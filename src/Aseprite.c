@@ -5,6 +5,7 @@
 //
 #include <stdbool.h>
 #include <string.h>
+#include <math.h>
 #include "pd_api.h"
 #include "Iocs.h"
 #include "Aseprite.h"
@@ -91,6 +92,7 @@ void AsepriteLoadSprite(const char *spriteName)
         strcat(path, spriteName);
         strcat(path, ".json");
 
+        // .json の読み込み
         if (!AsepriteLoadJson(&sprite->json, path)) {
             playdate->system->error("%s: %d: json is not loaded: %s", __FILE__, __LINE__, path);
             return;
@@ -145,27 +147,45 @@ void AsepriteLoadSprite(const char *spriteName)
 
     // ビットマップの読み込み
     {
+        // パスの取得
+        char path[kAsepritePathSize];
+        strcpy(path, asepriteController->spritePath);
+        strcat(path, spriteName);
+        strcat(path, ".png");
+
         // ビットマップ配列の作成
-        sprite->bitmaps = playdate->system->realloc(NULL, sprite->frameSize * sizeof (struct LCDBitmap *));
+        sprite->bitmaps = playdate->system->realloc(NULL, sprite->frameSize * sizeof (struct AsepriteSpriteBitmap));
         if (sprite->bitmaps == NULL) {
             playdate->system->error("%s: %d: bitmap array is not allocated.", __FILE__, __LINE__);
             return;
         }
 
         // ビットマップの作成
+        sprite->bitmapSize = 0;
         for (int i = 0; i < sprite->frameSize; i++) {
-            sprite->bitmaps[i] = playdate->graphics->newBitmap(sprite->frames[i].frame.w, sprite->frames[i].frame.h, kColorClear);
-            if (sprite->bitmaps[i] == NULL) {
-                playdate->system->error("%s: %d: bitmap is not created.", __FILE__, __LINE__);
-                return;
+            int j = 0;
+            while (j < sprite->bitmapSize) {
+                if (
+                    sprite->bitmaps[j].frame.x == sprite->frames[i].frame.x && 
+                    sprite->bitmaps[j].frame.y == sprite->frames[i].frame.y && 
+                    sprite->bitmaps[j].frame.w == sprite->frames[i].frame.w && 
+                    sprite->bitmaps[j].frame.h == sprite->frames[i].frame.h
+                ) {
+                    break;
+                }
+                ++j;
             }
+            if (j >= sprite->bitmapSize) {
+                sprite->bitmaps[j].frame = sprite->frames[i].frame;
+                sprite->bitmaps[j].bitmap = playdate->graphics->newBitmap(sprite->bitmaps[j].frame.w, sprite->bitmaps[j].frame.h, kColorClear);
+                if (sprite->bitmaps[j].bitmap == NULL) {
+                    playdate->system->error("%s: %d: bitmap is not created.", __FILE__, __LINE__);
+                    return;
+                }
+                ++sprite->bitmapSize;
+            }
+            sprite->frames[i].bitmap = j;
         }
-
-        // パスの取得
-        char path[kAsepritePathSize];
-        strcpy(path, asepriteController->spritePath);
-        strcat(path, spriteName);
-        strcat(path, ".png");
 
         // ビットマップの読み込み
         LCDBitmap *bitmap = NULL;
@@ -177,10 +197,10 @@ void AsepriteLoadSprite(const char *spriteName)
         }
 
         // ビットマップの複写
-        for (int i = 0; i < sprite->frameSize; i++) {
-            playdate->graphics->pushContext(sprite->bitmaps[i]);
+        for (int i = 0; i < sprite->bitmapSize; i++) {
+            playdate->graphics->pushContext(sprite->bitmaps[i].bitmap);
             playdate->graphics->setDrawMode(kDrawModeCopy);
-            playdate->graphics->drawBitmap(bitmap, -sprite->frames[i].frame.x, -sprite->frames[i].frame.y, kBitmapUnflipped);
+            playdate->graphics->drawBitmap(bitmap, -sprite->bitmaps[i].frame.x, -sprite->bitmaps[i].frame.y, kBitmapUnflipped);
             playdate->graphics->popContext();
         }
 
@@ -226,9 +246,9 @@ static void AsepriteFreeSprite(struct AsepriteSprite *sprite)
 
         // ビットマップの解放
         if (sprite->bitmaps != NULL) {
-            for (int i = 0; i < sprite->frameSize; i++) {
-                if (sprite->bitmaps[i] != NULL) {
-                    playdate->graphics->freeBitmap(sprite->bitmaps[i]);
+            for (int i = 0; i < sprite->bitmapSize; i++) {
+                if (sprite->bitmaps[i].bitmap != NULL) {
+                    playdate->graphics->freeBitmap(sprite->bitmaps[i].bitmap);
                 }
             }
             playdate->system->realloc(sprite->bitmaps, 0);
@@ -261,6 +281,82 @@ static struct AsepriteSprite *AsepriteFindSprite(const char *name)
         }
     }
     return sprite;
+}
+
+// スプライトの .json を読み込む
+//
+void AsepriteLoadSpriteJson(struct AsepriteSprite *sprite, const char *path)
+{
+    // Playdate の取得
+    PlaydateAPI *playdate = IocsGetPlaydate();
+    if (playdate == NULL) {
+        return;
+    }
+
+    // スプライトの初期化
+    memset(sprite, 0, sizeof (struct AsepriteSprite));
+
+    // .json の読み込み
+    {
+        // .json の読み込み
+        if (!AsepriteLoadJson(&sprite->json, path)) {
+            playdate->system->error("%s: %d: json is not loaded: %s", __FILE__, __LINE__, path);
+            return;
+        }
+
+        // デコーダの定義
+        struct json_decoder decoder = {
+            .decodeError = AsepriteSpriteJsonDecodeError,
+            .willDecodeSublist = AsepriteSpriteJsonWillDecodeSublist,
+            .shouldDecodeTableValueForKey = AsepriteSpriteJsonShouldDecodeTableValueForKey,
+            .didDecodeTableValue = AsepriteSpriteJsonDidDecodeTableValue,
+            .shouldDecodeArrayValueAtIndex = AsepriteSpriteJsonShouldDecodeArrayValueAtIndex,
+            .didDecodeArrayValue = AsepriteSpriteJsonDidDecodeArrayValue,
+            .didDecodeSublist = AsepriteSpriteJsonDidDecodeSublist, 
+            .userdata = sprite, 
+        };
+
+        // リーダの定義
+        json_reader reader = {
+            .read = (int (*)(void *, uint8_t *, int))AsepriteReadJson, 
+            .userdata = &sprite->json, 
+        };
+
+        // .json のデコード: 1 pass
+        {
+            json_value value;
+            sprite->json.ptr = 0;
+            sprite->pass = 1;
+            sprite->sublist = kAsepriteSpriteJsonSublistNull;
+            playdate->json->decode(&decoder, reader, &value);
+        }
+
+        // フレームの作成
+        if (sprite->frameSize > 0) {
+            sprite->frames = playdate->system->realloc(NULL, sprite->frameSize * sizeof (struct AsepriteSpriteFrame));
+        }
+
+        // タグの作成
+        if (sprite->tagSize > 0) {
+            sprite->tags = playdate->system->realloc(NULL, sprite->tagSize * sizeof (struct AsepriteSpriteTag));
+        }
+
+        // .json のデコード: 2 pass
+        {
+            json_value value;
+            sprite->json.ptr = 0;
+            sprite->pass = 2;
+            sprite->sublist = kAsepriteSpriteJsonSublistNull;
+            playdate->json->decode(&decoder, reader, &value);
+        }
+    }
+}
+
+// スプライトの .json を解放する
+//
+void AsepriteUnloadSpriteJson(struct AsepriteSprite *sprite)
+{
+    AsepriteFreeSprite(sprite);
 }
 
 // スプライトの .json をデコードする
@@ -480,6 +576,13 @@ static void *AsepriteSpriteJsonDidDecodeSublist(struct json_decoder *decoder, co
     return NULL;
 }
 
+// スプライトフレームを取得する
+//
+struct AsepriteSpriteFrame *AsepriteGetSpriteFrame(struct AsepriteSprite *sprite, int index)
+{
+    return &sprite->frames[index];
+}
+
 // スプライトアニメーションを開始する
 //
 void AsepriteStartSpriteAnimation(struct AsepriteSpriteAnimation *animation, const char *spriteName, const char *animationName, bool loop)
@@ -526,17 +629,15 @@ void AsepriteUpdateSpriteAnimation(struct AsepriteSpriteAnimation *animation)
     
     animation->millisecond += IocsGetFrameMillisecond();
     while (animation->millisecond >= animation->sprite->frames[animation->play].duration) {
+        animation->millisecond -= animation->sprite->frames[animation->play].duration;
         if (++animation->play > animation->to) {
             if (animation->loop) {
                 animation->play = animation->from;
-                animation->millisecond -= animation->sprite->frames[animation->play].duration;
             } else {
                 animation->play = animation->to;
                 animation->millisecond = animation->sprite->frames[animation->play].duration;
                 break;
             }
-        } else {
-            animation->millisecond -= animation->sprite->frames[animation->play].duration;
         }
     }
 }
@@ -565,8 +666,18 @@ void AsepriteDrawSpriteAnimation(struct AsepriteSpriteAnimation *animation, int 
     // ビットマップの描画
     {
         struct AsepriteSpriteFrame *frame = &animation->sprite->frames[animation->play];
+        struct AsepriteSpriteBitmap *bitmap = &animation->sprite->bitmaps[frame->bitmap];
         playdate->graphics->setDrawMode(mode);
-        playdate->graphics->drawBitmap(animation->sprite->bitmaps[animation->play], x, y, flip);
+        // playdate->graphics->drawBitmap(bitmap->bitmap, x, y, flip);
+        {
+            if (flip == kBitmapFlippedX || flip == kBitmapFlippedXY) {
+                x = x + (frame->sourceSize.w - (frame->spriteSourceSize.x + frame->spriteSourceSize.w));
+            }
+            if (flip == kBitmapFlippedY || flip == kBitmapFlippedXY) {
+                y = y + (frame->sourceSize.h - (frame->spriteSourceSize.y + frame->spriteSourceSize.h));
+            }
+            playdate->graphics->drawBitmap(bitmap->bitmap, x, y, flip);
+        }
     }
 }
 void AsepriteDrawRotatedSpriteAnimation(struct AsepriteSpriteAnimation *animation, int x, int y, float degrees, float centerx, float centery, float xscale, float yscale, LCDBitmapDrawMode mode)
@@ -580,9 +691,25 @@ void AsepriteDrawRotatedSpriteAnimation(struct AsepriteSpriteAnimation *animatio
     // ビットマップの描画
     {
         struct AsepriteSpriteFrame *frame = &animation->sprite->frames[animation->play];
+        struct AsepriteSpriteBitmap *bitmap = &animation->sprite->bitmaps[frame->bitmap];
         playdate->graphics->setDrawMode(mode);
-        playdate->graphics->drawRotatedBitmap(animation->sprite->bitmaps[animation->play], x, y, degrees, centerx, centery, xscale, yscale);
+        // playdate->graphics->drawRotatedBitmap(bitmap->bitmap, x, y, degrees, centerx, centery, xscale, yscale);
+        {
+            float fx = ((float)frame->spriteSourceSize.x - (float)frame->sourceSize.w * centerx) * xscale;
+            float fy = ((float)frame->spriteSourceSize.y - (float)frame->sourceSize.h * centery) * yscale;
+            float radian = (float)M_PI * degrees / 180.0f;
+            float sf = sinf(radian);
+            float cf = cosf(radian);
+            playdate->graphics->drawRotatedBitmap(bitmap->bitmap, x + (int)(fx * cf - fy * sf), y + (int)(fx * sf + fy * cf), degrees, 0.0f, 0.0f, xscale, yscale);
+        }
     }
+}
+
+// スプライトアニメーションの現在のフレームインデックスを取得する
+//
+int AsepriteGetSpriteAnimationPlayFrameIndex(struct AsepriteSpriteAnimation *animation)
+{
+    return animation->play;
 }
 
 // .json の値の名前を取得する
