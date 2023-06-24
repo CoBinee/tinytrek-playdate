@@ -372,7 +372,7 @@ static void ConsoleLoop(struct Console *console)
 
     // 角度入力の更新
     } else if (console->angleInput >= 0.0f) {
-        if (IocsIsButtonEdge(kButtonA)) {
+        if (IocsIsButtonEdge(kButtonA) || IocsIsButtonEdge(kButtonRight)) {
             console->angleDone = console->angleInput;
             console->angleInput = -1.0f;
             console->angleUpdate = true;

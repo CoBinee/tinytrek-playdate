@@ -1,7 +1,7 @@
 name=TINY TREK
 author=CoBinee
-description=A text-based strategy video game.
+description=A text-based strategy video game based on the Star Trek television series.
 bundleID=no2.cobin.tinytrek
 buildNumber=1
-version=0.0.1
+version=0.8.0
 imagePath=launcher
