@@ -5,3 +5,8 @@
 - `クランク`<br>コマンドの選択、方向の設定
 - `→`, `A`<br>決定
 - `←`, `B`<br>キャンセル
+
+## 開発環境
+- Playdate SDK 2.0.0
+- 美咲フォント
+- Final Frontier Old Style Font
