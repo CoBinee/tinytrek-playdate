@@ -15,5 +15,6 @@ Releases にある tinytrek.pdx-xxx.zip ファイルをダウンロード、展�
 - Playdate SDK 2.0.0
 
 ## その他
-- フォントに [美咲フォント](https://littlelimit.net/misaki.htm) を使用しています。
-- フォントに Final Frontier Old Style Font を使用しています。
+次のフォントを使用しています。
+- [美咲フォント](https://littlelimit.net/misaki.htm) 
+- Final Frontier Old Style Font
