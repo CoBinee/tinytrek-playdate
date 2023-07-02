@@ -501,7 +501,7 @@ static void IocsInitializeAudio(void)
                     samplerate, 
                     bytelength, 
                     iocs->audioSystemFrames[i], 
-                    playdate->sound->sample->getLength(iocs->audioSystemSamples[i])
+                    (double)playdate->sound->sample->getLength(iocs->audioSystemSamples[i])
                 );
             }
         }
@@ -610,7 +610,7 @@ void IocsLoadAudioEffects(const char *paths[], int size)
                 samplerate, 
                 bytelength, 
                 iocs->audioEffectFrames[i], 
-                playdate->sound->sample->getLength(iocs->audioEffectSamples[i])
+                (double)playdate->sound->sample->getLength(iocs->audioEffectSamples[i])
             );
         }
     }
